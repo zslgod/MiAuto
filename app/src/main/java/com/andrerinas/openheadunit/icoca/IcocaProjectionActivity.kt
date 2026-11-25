@@ -9,6 +9,9 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -16,7 +19,9 @@ import com.andrerinas.openheadunit.App
 import com.andrerinas.openheadunit.R
 import com.andrerinas.openheadunit.connection.IcocaBridge
 import com.andrerinas.openheadunit.connection.IcocaLinkState
+import com.andrerinas.openheadunit.main.MainActivity
 import com.andrerinas.openheadunit.utils.AppLog
+import com.andrerinas.openheadunit.utils.Settings
 import kotlinx.coroutines.launch
 
 /**
@@ -36,12 +41,20 @@ class IcocaProjectionActivity : AppCompatActivity() {
     private lateinit var bridge: IcocaBridge
     private var surfaceView: SurfaceView? = null
 
+    /** Set once the session has actually come up, so the first non-Connected emission can close us. */
+    private var sawConnected = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Match the orientation the canvas was negotiated for. MainActivity already sets the same
+        // requestedOrientation, but this activity is launched separately (and can be brought up
+        // from the background), so without it the Surface could come up in a different orientation
+        // than the phone is encoding for — stretched picture and UIBC touches landing off-target.
+        requestedOrientation = Settings(this).screenOrientation.androidOrientation
         // A projection session can run for a long time; never let the panel sleep mid-drive.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_icoca_projection)
-        hideSystemUi()
+        enterImmersiveFullscreen()
 
         bridge = App.provide(this).icocaBridge
         val view = findViewById<SurfaceView>(R.id.icoca_surface)
@@ -87,11 +100,43 @@ class IcocaProjectionActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 bridge.state.collect { state ->
+                    val connected = state.phase == IcocaLinkState.Phase.Connected
                     findViewById<View>(R.id.icoca_hint)?.visibility =
-                        if (state.phase == IcocaLinkState.Phase.Connected) View.GONE else View.VISIBLE
+                        if (connected) View.GONE else View.VISIBLE
+                    if (connected) {
+                        sawConnected = true
+                    } else if (sawConnected && isLinkGone(state.phase) && !isFinishing) {
+                        // The phone hung up on its own: the SDK has no frames to draw any more, so
+                        // without this the projection screen would freeze on the last frame (or a
+                        // black surface) while the car stays stuck on "connected". Return to the
+                        // standby screen so it re-advertises and shows the next pairing code.
+                        AppLog.i("ICCOA projection: link left Connected (${state.phase}) — closing")
+                        finishToStandby()
+                    }
                 }
             }
         }
+    }
+
+    private fun isLinkGone(phase: IcocaLinkState.Phase): Boolean =
+        phase == IcocaLinkState.Phase.Advertising ||
+            phase == IcocaLinkState.Phase.Idle ||
+            phase == IcocaLinkState.Phase.Error
+
+    /**
+     * Closes the projection and makes sure the standby screen is in front. When the projection was
+     * started as its own task (from the process-scoped auto-open), a bare `finish()` would drop the
+     * user onto the launcher/another task instead of the car's standby screen.
+     */
+    private fun finishToStandby() {
+        val standby = Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        try {
+            startActivity(standby)
+        } catch (t: Throwable) {
+            AppLog.w("ICCOA projection: 无法回到待机页: $t")
+        }
+        finish()
     }
 
     /**
@@ -152,11 +197,30 @@ class IcocaProjectionActivity : AppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemUi()
+        if (hasFocus) enterImmersiveFullscreen()
     }
 
-    @Suppress("DEPRECATION")
-    private fun hideSystemUi() {
+    /**
+     * Makes the SurfaceView fill the whole panel, including the area the system bars would
+     * normally reserve.
+     *
+     * The old implementation set only the deprecated `systemUiVisibility` flags. On Android 11+
+     * those hide the bars but no longer make the *layout* extend underneath them unless
+     * `setDecorFitsSystemWindows(false)` is also called. The result was a Surface that stopped
+     * short of the panel edge — 2282 px instead of 2400 in the report — while the phone encoded
+     * for the full 2400 px canvas: cropped/stretched picture, and UIBC touches mapped against the
+     * wrong bounds. `decorFitsSystemWindows(false)` plus hiding the bars makes the Surface match
+     * the negotiated canvas.
+     */
+    private fun enterImmersiveFullscreen() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+        // Legacy flags remain as a fallback on older head-unit ROMs that ignore the compat API.
+        @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                 or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION

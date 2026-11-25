@@ -5,17 +5,25 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.os.UserManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.multidex.MultiDex
+import com.andrerinas.openheadunit.connection.IcocaLinkState
+import com.andrerinas.openheadunit.icoca.IcocaProjectionActivity
 import com.andrerinas.openheadunit.main.BackgroundNotification
+import com.andrerinas.openheadunit.main.MainActivity
 import com.andrerinas.openheadunit.aap.AapNavigation
 import com.andrerinas.openheadunit.ssl.ConscryptInitializer
 import com.andrerinas.openheadunit.utils.AppLog
 import com.andrerinas.openheadunit.utils.AppThemeManager
 import com.andrerinas.openheadunit.utils.Settings
 import android.os.SystemClock
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 
 class App : Application() {
@@ -23,6 +31,12 @@ class App : Application() {
     private val component: AppComponent by lazy {
         AppComponent(this)
     }
+
+    /** Process-scoped coroutine host: lives as long as the process, survives any activity going away. */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** One auto-open per ICCOA session; reset whenever the link leaves Connected. */
+    private var projectionAutoOpenRequested = false
 
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
@@ -99,6 +113,56 @@ class App : Application() {
 
         // Register the main broadcast receiver safely for Android 14+ using ContextCompat
         ContextCompat.registerReceiver(this, AapBroadcastReceiver(), AapBroadcastReceiver.filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+
+        observeIcocaForAutoProjection()
+    }
+
+    /**
+     * Opens the projection screen whenever a phone session comes up, no matter which activity is
+     * on screen (or whether the app is on screen at all).
+     *
+     * The ICCOA SDK casts into a Surface that only exists while [IcocaProjectionActivity] is alive.
+     * A phone that connects with no projection on screen therefore has nowhere to draw:
+     * `startCast()` never succeeds, the phone gives up ~15 s later, and the car re-advertises —
+     * an endless connect/fail loop that only stops when the user manually reopens the app. That is
+     * exactly the `startCast 重试用尽` churn in the 0.1.3 diagnostics report.
+     *
+     * [MainActivity]'s own observer only runs while it is STARTED, and it also owns the
+     * "already opened this session" flag. When the app is backgrounded (or the standby screen is
+     * behind another app), that collector is suspended and never sees the disconnect, so the flag
+     * stays `true` and the next connection is never shown either. Running the same guard here, on
+     * a process-scoped coroutine that is never suspended, guarantees the flag is reset the moment
+     * the link leaves Connected — and that a new session is opened even from the background.
+     */
+    private fun observeIcocaForAutoProjection() {
+        appScope.launch {
+            component.icocaBridge.state.collect { state ->
+                if (state.phase == IcocaLinkState.Phase.Connected) {
+                    // Attempt once per session. `isForeground` stops a re-emission from stacking a
+                    // second projection on top of the one already on screen.
+                    if (!projectionAutoOpenRequested && !IcocaProjectionActivity.isForeground) {
+                        projectionAutoOpenRequested = true
+                        AppLog.i("ICCOA: phone connected — opening projection (process scope)")
+                        val intent = IcocaProjectionActivity.intent(this@App)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        try {
+                            startActivity(intent)
+                        } catch (t: Throwable) {
+                            // A background activity launch can be refused on some builds. Clear the
+                            // throttle so the next Connected emission (or MainActivity.onResume)
+                            // gets another chance once the app is actually in the foreground.
+                            projectionAutoOpenRequested = false
+                            AppLog.w("ICCOA: 自动打开投屏页失败（后台启动被拒？）: $t")
+                        }
+                    }
+                } else {
+                    projectionAutoOpenRequested = false
+                    // Never let a subscription that was suspended across a disconnect leave the
+                    // shared "opened this session" flag stuck true.
+                    MainActivity.icocaProjectionOpened = false
+                }
+            }
+        }
     }
 
     private fun isUserUnlocked(): Boolean {
