@@ -4,11 +4,14 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-    <!-- The ICCOA SDK renders the phone's Miracast stream straight into this surface. -->
+    <!-- The ICCOA SDK renders the phone's Miracast stream straight into this surface. Its size is
+         fitted to the stream's aspect ratio in code, so a panel that is not exactly the phone's
+         shape gets thin bars instead of a stretched picture. -->
     <SurfaceView
         android:id="@+id/icoca_surface"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:layout_gravity="center" />
 
     <TextView
         android:id="@+id/icoca_hint"

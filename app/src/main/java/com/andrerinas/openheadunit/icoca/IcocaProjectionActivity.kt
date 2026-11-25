@@ -101,6 +101,12 @@ class IcocaProjectionActivity : AppCompatActivity() {
             }
         )
 
+        // Aspect-fit needs the parent's measured size, which only exists after the first layout.
+        view.post { applySurfaceAspect() }
+        (view.parent as? View)?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            applySurfaceAspect()
+        }
+
         findViewById<View>(R.id.icoca_disconnect).setOnClickListener {
             AppLog.i("ICCOA projection: disconnect tapped")
             // Drop the session but keep advertising: the standby screen goes straight back to
@@ -123,6 +129,7 @@ class IcocaProjectionActivity : AppCompatActivity() {
                         standbyJob?.cancel()
                         standbyJob = null
                         hint.visibility = View.GONE
+                        applySurfaceAspect()
                     } else if (sawConnected && isLinkGone(state.phase) && !isFinishing) {
                         // The phone hung up on its own. Give it a few seconds to come back before
                         // handing the screen back to standby: the SDK re-advertises immediately and
@@ -152,6 +159,37 @@ class IcocaProjectionActivity : AppCompatActivity() {
         phase == IcocaLinkState.Phase.Advertising ||
             phase == IcocaLinkState.Phase.Idle ||
             phase == IcocaLinkState.Phase.Error
+
+    /**
+     * Fits the SurfaceView to the stream's aspect ratio instead of stretching it to the window.
+     *
+     * A SurfaceView's layer is always scaled to the view's bounds, so when the window's shape
+     * differs from the negotiated canvas the picture is squeezed. The reports show exactly that:
+     * a 2282x1080 window on a 2400x1080 panel (the 118 px the system bar still reserves) against a
+     * 20:9 stream — a few percent of horizontal squash, which reads as "the icons look flat".
+     *
+     * The phone encodes exactly the canvas we negotiated, so the stream's shape is known without
+     * asking the SDK: use it and letterbox the remainder. When the shapes already match this is a
+     * no-op and the picture stays full-screen.
+     */
+    private fun applySurfaceAspect() {
+        val view = surfaceView ?: return
+        val parent = view.parent as? View ?: return
+        val canvasW = bridge.videoWidth
+        val canvasH = bridge.videoHeight
+        val availW = parent.width
+        val availH = parent.height
+        if (canvasW <= 0 || canvasH <= 0 || availW <= 0 || availH <= 0) return
+        val scale = minOf(availW.toFloat() / canvasW, availH.toFloat() / canvasH)
+        val w = (canvasW * scale).toInt()
+        val h = (canvasH * scale).toInt()
+        val lp = view.layoutParams
+        if (lp.width != w || lp.height != h) {
+            lp.width = w
+            lp.height = h
+            view.layoutParams = lp
+        }
+    }
 
     /**
      * Closes the projection and makes sure the standby screen is in front. When the projection was
