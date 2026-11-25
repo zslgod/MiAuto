@@ -113,4 +113,35 @@ public final class ScreenSizePolicy {
         int outH = Math.max(2, ((int) Math.floor(h * scale)) & ~1);
         return new int[]{outW, outH};
     }
+
+    /**
+     * 在给定屏幕和选定的显示比例下，算出最终上报的画布。
+     *
+     * <p>{@code ratioNum/ratioDen <= 0} 表示「跟随屏幕」（设置里的「自动」）：
+     * 直接用屏幕的比例，行为与 {@link #fitForEncoder} 一致。指定比例时，先在这块屏里取<b>最大的
+     * 同比例矩形</b>（整幅画面都能显示、只留黑边），再交给 {@link #fitForEncoder} 收进解码预算。
+     *
+     * <p>注意两个方向都要算：竖屏屏上选 16:9，得到的是「宽受限」的矩形；横屏屏上选 9:16，
+     * 得到的是「高受限」的矩形。
+     *
+     * @param panelW 屏幕宽
+     * @param panelH 屏幕高
+     * @param ratioNum 比例分子（宽），0 表示跟随屏幕
+     * @param ratioDen 比例分母（高），0 表示跟随屏幕
+     * @return {@code int[]{w, h}}；屏幕尺寸无效时 {@code {0, 0}}
+     */
+    public static int[] canvasFor(int panelW, int panelH, int ratioNum, int ratioDen) {
+        if (panelW <= 0 || panelH <= 0) return new int[]{0, 0};
+        if (ratioNum <= 0 || ratioDen <= 0) return fitForEncoder(panelW, panelH);
+        double target = (double) ratioNum / (double) ratioDen;
+        int w = panelW;
+        int h = (int) Math.round(w / target);
+        if (h > panelH) {
+            h = panelH;
+            w = (int) Math.round(h * target);
+        }
+        w = Math.max(2, w & ~1);
+        h = Math.max(2, h & ~1);
+        return fitForEncoder(w, h);
+    }
 }

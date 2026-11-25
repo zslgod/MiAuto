@@ -9,6 +9,7 @@ import android.util.Log;
 import android.view.Surface;
 
 import com.share.connect.WifiOwnerConfig;
+import com.andrerinas.openheadunit.utils.Settings;
 import com.ucar.vehiclesdk.IAppSurfaceStateListener;
 import com.ucar.vehiclesdk.ICarConnectListener;
 import com.ucar.vehiclesdk.ICarInitCallback;
@@ -255,11 +256,15 @@ public class IccoaManager {
         int measuredW = w, measuredH = h;
         // 实测画布只用来「上限收拢」：屏幕在解码器预算内（≤1920 单边、≤1080p 像素）时原样
         // 上报，超出时按比例缩到尽可能大 —— 既不会黑屏，也不会像固定 0.5 那样白白损失一半清晰度。
-        int[] canvas = ScreenSizePolicy.fitForEncoder(w, h);
+        // 用户选了显示比例时，先在这块屏里取该比例的最大矩形，再同样收进预算。
+        Settings.ProjectionAspect aspect = new Settings(appCtx).getProjectionAspect();
+        int[] canvas = ScreenSizePolicy.canvasFor(
+                w, h, aspect.getRatioNum(), aspect.getRatioDen());
         w = canvas[0];
         h = canvas[1];
         if (w != screenW || h != screenH) {
             log("协商画布 " + w + "x" + h
+                    + (aspect != Settings.ProjectionAspect.AUTO ? "（比例 " + aspect.name() + "）" : "")
                     + (w != measuredW || h != measuredH
                             ? "（屏 " + measuredW + "x" + measuredH + "，按解码器上限收拢）" : "")
                     + (initCanvasW > 0 ? "（init 时 " + initCanvasW + "x" + initCanvasH + "）" : "（首次）"));

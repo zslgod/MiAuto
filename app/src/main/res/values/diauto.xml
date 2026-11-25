@@ -15,6 +15,9 @@
     <string name="da_ready">Waiting for your phone</string>
     <string name="da_connecting">Connecting to your phone…</string>
     <string name="icoca_reconnecting">Connection lost — waiting for your phone to reconnect…</string>
+    <string name="projection_aspect">Projection aspect</string>
+    <string name="change_projection_aspect">Choose the projection aspect</string>
+    <string name="projection_aspect_auto">Automatic (match the screen)</string>
     <string name="da_connected">Phone connected</string>
     <string name="da_pin">Pairing code: %1$s</string>
     <string name="da_pin_label">PAIRING CODE</string>

@@ -321,6 +321,16 @@ class Settings(private val context: Context) {
             prefs.edit().putInt(KEY_SCREEN_ORIENTATION, orientation.value).apply()
         }
 
+    /**
+     * 投屏画布的比例。手机按这个形状编码，投屏页再按同一比例居中显示，多出来的部分是黑边。
+     * [ProjectionAspect.AUTO] 跟随屏幕本身的比例（原来的行为）。
+     */
+    var projectionAspect: ProjectionAspect
+        get() = ProjectionAspect.fromInt(prefs.getInt(KEY_PROJECTION_ASPECT, 0)) ?: ProjectionAspect.AUTO
+        set(aspect) {
+            prefs.edit().putInt(KEY_PROJECTION_ASPECT, aspect.value).apply()
+        }
+
     var dpiPixelDensity: Int
         get() = prefs.getInt("dpi-pixel-density", 0) // Default 0 for Auto
         set(value) {
@@ -1262,6 +1272,7 @@ class Settings(private val context: Context) {
 
         private const val KEY_AUTO_START_ON_USB = "auto-start-on-usb"
         const val KEY_SCREEN_ORIENTATION = "screen-orientation"
+        private const val KEY_PROJECTION_ASPECT = "projection-aspect"
         private const val KEY_LISTEN_FOR_USB_DEVICES = "listen-for-usb-devices"
         private const val KEY_AUTO_START_BT_MAC = "auto-start-bt-mac"
         private const val KEY_AUTO_START_BT_MACS = "auto-start-bt-macs"
@@ -1484,6 +1495,22 @@ class Settings(private val context: Context) {
 
         companion object {
             private val map = values().associateBy(ScreenOrientation::value)
+            fun fromInt(value: Int) = map[value]
+        }
+    }
+
+    /**
+     * 投屏比例。[ratioNum]/[ratioDen] 是画布的宽高比；[AUTO] 用 0/0 表示「跟随屏幕」。
+     */
+    enum class ProjectionAspect(val value: Int, val ratioNum: Int, val ratioDen: Int) {
+        AUTO(0, 0, 0),
+        RATIO_16_9(1, 16, 9),
+        RATIO_4_3(2, 4, 3),
+        RATIO_9_16(3, 9, 16),
+        RATIO_3_2(4, 3, 2);
+
+        companion object {
+            private val map = values().associateBy(ProjectionAspect::value)
             fun fromInt(value: Int) = map[value]
         }
     }

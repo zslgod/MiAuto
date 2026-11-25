@@ -132,4 +132,45 @@ class ScreenSizePolicyTest {
         assertArrayEquals(intArrayOf(0, 0), ScreenSizePolicy.fitForEncoder(0, 1080))
         assertArrayEquals(intArrayOf(0, 0), ScreenSizePolicy.fitForEncoder(1080, -1))
     }
+
+    @Test
+    fun `auto aspect is the plain encoder fit`() {
+        assertArrayEquals(
+            ScreenSizePolicy.fitForEncoder(1080, 2400),
+            ScreenSizePolicy.canvasFor(1080, 2400, 0, 0),
+        )
+        assertArrayEquals(
+            ScreenSizePolicy.fitForEncoder(2400, 1080),
+            ScreenSizePolicy.canvasFor(2400, 1080, 0, 0),
+        )
+    }
+
+    @Test
+    fun `a chosen aspect gives the largest same-shape rectangle that fills the panel`() {
+        // Landscape 20:9 panel, 16:9: height is the limit -> 1920x1080, exactly the pixel budget.
+        assertArrayEquals(intArrayOf(1920, 1080), ScreenSizePolicy.canvasFor(2400, 1080, 16, 9))
+        // 4:3 on the same panel: height-limited again -> 1440x1080.
+        assertArrayEquals(intArrayOf(1440, 1080), ScreenSizePolicy.canvasFor(2400, 1080, 4, 3))
+        // Portrait panel, 16:9: width-limited, the picture is a band in the middle.
+        assertArrayEquals(intArrayOf(1080, 608), ScreenSizePolicy.canvasFor(1080, 2400, 16, 9))
+        // 9:16 back on a portrait panel: width-limited -> 1080x1920, still inside the budget.
+        assertArrayEquals(intArrayOf(1080, 1920), ScreenSizePolicy.canvasFor(1080, 2400, 9, 16))
+    }
+
+    @Test
+    fun `a chosen aspect never crops and stays inside the decoder budget`() {
+        val ratios = listOf(16 to 9, 4 to 3, 9 to 16, 3 to 2)
+        val panels = listOf(1080 to 2400, 2400 to 1080, 2282 to 1080, 1280 to 720)
+        for ((panelW, panelH) in panels) {
+            for ((num, den) in ratios) {
+                val (w, h) = ScreenSizePolicy.canvasFor(panelW, panelH, num, den)
+                assertTrue("fits the panel ${w}x$h on ${panelW}x$panelH", w <= panelW && h <= panelH)
+                assertTrue("long side ${w}x$h", maxOf(w, h) <= ScreenSizePolicy.MAX_SIDE)
+                assertTrue("pixels ${w}x$h", w.toLong() * h <= ScreenSizePolicy.MAX_PIXELS)
+                val expected = num.toDouble() / den
+                val actual = w.toDouble() / h
+                assertTrue("aspect ${w}x$h for $num:$den", kotlin.math.abs(actual - expected) < 0.01)
+            }
+        }
+    }
 }

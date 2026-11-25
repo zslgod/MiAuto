@@ -115,6 +115,7 @@ class SettingsFragment : Fragment() {
     private var pendingShowFpsCounter: Boolean? = null
     private var pendingShowToastMessages: Boolean? = null
     private var pendingScreenOrientation: Settings.ScreenOrientation? = null
+    private var pendingProjectionAspect: Settings.ProjectionAspect? = null
     private var pendingAppLanguage: String? = null
     private var pendingFakeSpeed: Boolean? = null
 
@@ -242,6 +243,7 @@ class SettingsFragment : Fragment() {
         pendingShowFpsCounter = settings.showFpsCounter
         pendingShowToastMessages = settings.showToastMessages
         pendingScreenOrientation = settings.screenOrientation
+        pendingProjectionAspect = settings.projectionAspect
         pendingAppLanguage = settings.appLanguage
 
         // Initialize local state for stretch to fill
@@ -357,6 +359,7 @@ class SettingsFragment : Fragment() {
         pendingShowFpsCounter = settings.showFpsCounter
         pendingShowToastMessages = settings.showToastMessages
         pendingScreenOrientation = settings.screenOrientation
+        pendingProjectionAspect = settings.projectionAspect
         pendingAppLanguage = settings.appLanguage
         pendingStretchToFill = settings.stretchToFill
         pendingForcedScale = settings.forcedScale
@@ -494,6 +497,7 @@ class SettingsFragment : Fragment() {
         pendingShowFpsCounter?.let { settings.showFpsCounter = it }
         pendingShowToastMessages?.let { settings.showToastMessages = it }
         pendingScreenOrientation?.let { settings.screenOrientation = it }
+        pendingProjectionAspect?.let { settings.projectionAspect = it }
 
         pendingMediaVolumeOffset?.let { settings.mediaVolumeOffset = it }
         pendingAssistantVolumeOffset?.let { settings.assistantVolumeOffset = it }
@@ -618,6 +622,7 @@ class SettingsFragment : Fragment() {
                         pendingShowFpsCounter != settings.showFpsCounter ||
                         pendingShowToastMessages != settings.showToastMessages ||
                         pendingScreenOrientation != settings.screenOrientation ||
+                        pendingProjectionAspect != settings.projectionAspect ||
                         pendingAppLanguage != settings.appLanguage ||
                         pendingStretchToFill != settings.stretchToFill ||
                         pendingForcedScale != settings.forcedScale ||
@@ -1419,6 +1424,30 @@ class SettingsFragment : Fragment() {
                             setPackage(requireContext().packageName)
                         })
 
+                        checkChanges()
+                        dialog.dismiss()
+                        updateSettingsList()
+                    }
+                    .show()
+            }
+        ))
+
+        items.add(SettingItem.SettingEntry(
+            stableId = "projectionAspect",
+            nameResId = R.string.projection_aspect,
+            value = projectionAspectLabel(pendingProjectionAspect!!),
+            searchKeywords = "aspect ratio 16:9 4:3 9:16 3:2 比例 画布",
+            onClick = { _ ->
+                val aspects = Settings.ProjectionAspect.values()
+                val labels = aspects.map { projectionAspectLabel(it) }.toTypedArray()
+                MaterialAlertDialogBuilder(requireContext(), R.style.DarkAlertDialog)
+                    .setTitle(R.string.change_projection_aspect)
+                    .setSingleChoiceItems(labels, pendingProjectionAspect!!.value) { dialog, which ->
+                        val aspect = Settings.ProjectionAspect.fromInt(which) ?: Settings.ProjectionAspect.AUTO
+                        pendingProjectionAspect = aspect
+                        // Apply immediately so the next link start negotiates the new canvas.
+                        settings.projectionAspect = aspect
+                        settings.commit()
                         checkChanges()
                         dialog.dismiss()
                         updateSettingsList()
@@ -2556,6 +2585,14 @@ class SettingsFragment : Fragment() {
         val screenOrientation: Settings.ScreenOrientation,
         val hudMirroring: Boolean
     )
+
+    private fun projectionAspectLabel(aspect: Settings.ProjectionAspect): String = when (aspect) {
+        Settings.ProjectionAspect.AUTO -> getString(R.string.projection_aspect_auto)
+        Settings.ProjectionAspect.RATIO_16_9 -> "16:9"
+        Settings.ProjectionAspect.RATIO_4_3 -> "4:3"
+        Settings.ProjectionAspect.RATIO_9_16 -> "9:16"
+        Settings.ProjectionAspect.RATIO_3_2 -> "3:2"
+    }
 
     private fun startExportSettings() {
         val options = mutableListOf<Pair<String, () -> Unit>>()

@@ -9,6 +9,9 @@
     <string name="da_ready">等待手机连接</string>
     <string name="da_connecting">正在连接手机…</string>
     <string name="icoca_reconnecting">连接已断开，正在等待手机重连…</string>
+    <string name="projection_aspect">投射比例</string>
+    <string name="change_projection_aspect">选择投射比例</string>
+    <string name="projection_aspect_auto">自动（跟随屏幕）</string>
     <string name="da_connected">手机已连接</string>
     <string name="da_pin">配对码：%1$s</string>
     <string name="da_pin_label">配对码</string>
