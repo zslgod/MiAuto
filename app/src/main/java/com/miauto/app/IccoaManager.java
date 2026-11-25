@@ -225,16 +225,10 @@ public class IccoaManager {
      */
     private int screenW = 0, screenH = 0, videoW = 1920, videoH = 720;
 
-    /** 灌进 {@code UCarConfig} 的那一份画布；判断「这次连接要不要重谈」就靠它。 */
-    private volatile int initCanvasW = 0, initCanvasH = 0;
-
     /**
-     * 临时实验开关：协商给手机的画布整体缩放。<b>1.0 = 按实测分辨率</b>。
-     *
-     * <p>用来验证「黑屏是不是解码器吃不下 1080×2400」：0.5 时上报 540×1140，手机按这个尺寸编码，
-     * 解码压力降到四分之一。若缩小后能出画，就说明原分辨率超出了这台设备解码器的能力/配置。
+     * 灌进 {@code UCarConfig} 的那一份画布；判断「这次连接要不要重谈」就靠它。
      */
-    private static final float CANVAS_SCALE = 0.5f;
+    private volatile int initCanvasW = 0, initCanvasH = 0;
 
     /** 本会话内连续「无线建链类失败」次数，{@link ReconnectBackoff} 据此放大重播间隔。 */
     private int wirelessFailStreak = 0;
@@ -258,12 +252,16 @@ public class IccoaManager {
             log("! 忽略无效的屏幕尺寸 " + w + "x" + h + " —— 保留上一次有效值，等重试");
             return;
         }
-        if (CANVAS_SCALE != 1.0f) {
-            w = Math.max(2, Math.round(w * CANVAS_SCALE)) & ~1;   // 编码器要求偶数
-            h = Math.max(2, Math.round(h * CANVAS_SCALE)) & ~1;
-        }
+        int measuredW = w, measuredH = h;
+        // 实测画布只用来「上限收拢」：屏幕在解码器预算内（≤1920 单边、≤1080p 像素）时原样
+        // 上报，超出时按比例缩到尽可能大 —— 既不会黑屏，也不会像固定 0.5 那样白白损失一半清晰度。
+        int[] canvas = ScreenSizePolicy.fitForEncoder(w, h);
+        w = canvas[0];
+        h = canvas[1];
         if (w != screenW || h != screenH) {
             log("协商画布 " + w + "x" + h
+                    + (w != measuredW || h != measuredH
+                            ? "（屏 " + measuredW + "x" + measuredH + "，按解码器上限收拢）" : "")
                     + (initCanvasW > 0 ? "（init 时 " + initCanvasW + "x" + initCanvasH + "）" : "（首次）"));
         }
         screenW = w;
@@ -554,6 +552,9 @@ public class IccoaManager {
      */
     private void tryStartCast() {
         if (!sdkReady || castStarted || adapter == null) return;
+        // 没有活跃会话时起投只会撞进 SDK 的异常分支（CastManager 还没有 WFD 会话可绑）。
+        // 投屏页在断连宽限期里不会关闭，Surface 仍然有效，重连后由 WFD_READY 重新触发。
+        if (!sessionActive) return;
         Surface s = surface;
         if (s == null || !s.isValid()) {
             if (castRetry < CAST_RETRY_MAX) {

@@ -8,6 +8,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -22,6 +23,8 @@ import com.andrerinas.openheadunit.connection.IcocaLinkState
 import com.andrerinas.openheadunit.main.MainActivity
 import com.andrerinas.openheadunit.utils.AppLog
 import com.andrerinas.openheadunit.utils.Settings
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -38,11 +41,27 @@ import kotlinx.coroutines.launch
  */
 class IcocaProjectionActivity : AppCompatActivity() {
 
+    private companion object {
+        /** How long the projection stays up after the link drops, waiting for an automatic reconnect. */
+        const val RECONNECT_GRACE_MS = 10_000L
+    }
+
     private lateinit var bridge: IcocaBridge
     private var surfaceView: SurfaceView? = null
 
     /** Set once the session has actually come up, so the first non-Connected emission can close us. */
     private var sawConnected = false
+
+    /**
+     * Pending "give up and go back to standby" timer, armed when the link drops after it was up.
+     *
+     * <p>CarWith very often tears a session down and immediately reconnects on its own (the log
+     * from the OPPO A96 shows the phone sending mirror-state 1 followed by a disconnect request,
+     * then re-advertising and reconnecting). Closing the projection the instant the state leaves
+     * Connected made that look like the picture "suddenly exiting and popping back". Staying put
+     * for a grace period turns it into a brief "reconnecting" overlay instead.
+     */
+    private var standbyJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,19 +117,34 @@ class IcocaProjectionActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                // Scoped to STARTED on purpose: the grace timer must not fire while the car screen
+                // is in the background, where a background activity launch would be refused.
+                val scope = this
                 bridge.state.collect { state ->
+                    val hint = findViewById<TextView>(R.id.icoca_hint)
                     val connected = state.phase == IcocaLinkState.Phase.Connected
-                    findViewById<View>(R.id.icoca_hint)?.visibility =
-                        if (connected) View.GONE else View.VISIBLE
                     if (connected) {
                         sawConnected = true
+                        standbyJob?.cancel()
+                        standbyJob = null
+                        hint.visibility = View.GONE
                     } else if (sawConnected && isLinkGone(state.phase) && !isFinishing) {
-                        // The phone hung up on its own: the SDK has no frames to draw any more, so
-                        // without this the projection screen would freeze on the last frame (or a
-                        // black surface) while the car stays stuck on "connected". Return to the
-                        // standby screen so it re-advertises and shows the next pairing code.
-                        AppLog.i("ICCOA projection: link left Connected (${state.phase}) — closing")
-                        finishToStandby()
+                        // The phone hung up on its own. Give it a few seconds to come back before
+                        // handing the screen back to standby: the SDK re-advertises immediately and
+                        // CarWith usually reconnects without user action.
+                        if (standbyJob == null) {
+                            hint.setText(R.string.icoca_reconnecting)
+                            hint.visibility = View.VISIBLE
+                            standbyJob = scope.launch {
+                                AppLog.i("ICCOA projection: link gone (${state.phase}) — waiting ${RECONNECT_GRACE_MS}ms for the phone")
+                                delay(RECONNECT_GRACE_MS)
+                                AppLog.i("ICCOA projection: phone did not come back — closing to standby")
+                                finishToStandby()
+                            }
+                        }
+                    } else if (hint.visibility != View.VISIBLE) {
+                        hint.setText(R.string.da_connecting)
+                        hint.visibility = View.VISIBLE
                     }
                 }
             }

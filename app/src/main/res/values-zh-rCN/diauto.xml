@@ -8,6 +8,7 @@
     <string name="da_open">打开投屏</string>
     <string name="da_ready">等待手机连接</string>
     <string name="da_connecting">正在连接手机…</string>
+    <string name="icoca_reconnecting">连接已断开，正在等待手机重连…</string>
     <string name="da_connected">手机已连接</string>
     <string name="da_pin">配对码：%1$s</string>
     <string name="da_pin_label">配对码</string>

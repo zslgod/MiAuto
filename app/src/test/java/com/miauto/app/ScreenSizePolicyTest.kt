@@ -1,6 +1,7 @@
 package com.miauto.app
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -75,5 +76,60 @@ class ScreenSizePolicyTest {
     fun `an init canvas that was never recorded is not trusted`() {
         // First launch records 0 only if the measurement failed at init time; that config is junk.
         assertTrue(ScreenSizePolicy.needsRenegotiation(1920, 1080, 0, 0))
+    }
+
+    @Test
+    fun `canvases inside the decoder budget are reported untouched`() {
+        assertArrayEquals(intArrayOf(1920, 1080), ScreenSizePolicy.fitForEncoder(1920, 1080))
+        assertArrayEquals(intArrayOf(1280, 720), ScreenSizePolicy.fitForEncoder(1280, 720))
+        assertArrayEquals(intArrayOf(540, 1200), ScreenSizePolicy.fitForEncoder(540, 1200))
+    }
+
+    @Test
+    fun `a tall phone canvas is capped on its long side`() {
+        // The measured failure: 1080x2400 negotiated fine but the AVC decoder never produced a
+        // frame (black screen), while 540x1200 played. 2400 is over the 1920 side limit.
+        assertArrayEquals(intArrayOf(864, 1920), ScreenSizePolicy.fitForEncoder(1080, 2400))
+        assertArrayEquals(intArrayOf(1920, 864), ScreenSizePolicy.fitForEncoder(2400, 1080))
+        assertArrayEquals(intArrayOf(864, 1920), ScreenSizePolicy.fitForEncoder(1440, 3200))
+    }
+
+    @Test
+    fun `the pixel budget caps a canvas that fits on both sides`() {
+        // 1920x1200 has no side over the limit, but 2.30 MP is past the level 4.1 budget (2.07 MP).
+        val fitted = ScreenSizePolicy.fitForEncoder(1920, 1200)
+        assertTrue(fitted[0].toLong() * fitted[1] <= ScreenSizePolicy.MAX_PIXELS)
+        assertTrue(fitted[0] < 1920)
+    }
+
+    @Test
+    fun `the fitted canvas keeps the aspect ratio, stays even and never shrinks more than needed`() {
+        val sizes = listOf(
+            1080 to 2400, 2400 to 1080, 1440 to 3200, 1920 to 1200,
+            1080 to 1920, 1921 to 1081, 2160 to 3840,
+        )
+        for ((w, h) in sizes) {
+            val (outW, outH) = ScreenSizePolicy.fitForEncoder(w, h)
+            assertEquals("width even for ${w}x$h", 0, outW % 2)
+            assertEquals("height even for ${w}x$h", 0, outH % 2)
+            assertTrue("long side capped for ${w}x$h", maxOf(outW, outH) <= ScreenSizePolicy.MAX_SIDE)
+            assertTrue("pixels capped for ${w}x$h", outW.toLong() * outH <= ScreenSizePolicy.MAX_PIXELS)
+            val aspectError = kotlin.math.abs(outW.toDouble() / outH - w.toDouble() / h)
+            assertTrue("aspect drift for ${w}x$h: $outW x $outH", aspectError < 0.01)
+            // Only downscale for a real reason: the result must be close to the largest allowed.
+            val allowedScale = minOf(
+                1.0,
+                ScreenSizePolicy.MAX_SIDE.toDouble() / maxOf(w, h),
+                kotlin.math.sqrt(ScreenSizePolicy.MAX_PIXELS.toDouble() / (w.toDouble() * h)),
+            )
+            val actualScale = outW.toDouble() / w
+            assertTrue("over-shrunk ${w}x$h -> $outW x $outH", actualScale > allowedScale * 0.97)
+        }
+    }
+
+    @Test
+    fun `an invalid measurement still fits to zero`() {
+        assertArrayEquals(intArrayOf(0, 0), ScreenSizePolicy.fitForEncoder(0, 1080))
+        assertArrayEquals(intArrayOf(0, 0), ScreenSizePolicy.fitForEncoder(1080, -1))
     }
 }

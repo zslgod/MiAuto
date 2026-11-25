@@ -77,4 +77,40 @@ public final class ScreenSizePolicy {
         if (initW <= 0 || initH <= 0) return true;
         return nowW != initW || nowH != initH;
     }
+
+    /**
+     * H.264 Level 4.1 的硬上限：单边 1920，像素 1920×1080。
+     *
+     * <p>来自实测：这台车机的 AVC 解码器（{@code c2.qti.avc.decoder}）按 1080×2400 协商时
+     * 拿不到可解码的帧，画面全黑；同一台手机、同一条链路降到 540×1200 立刻出画。1080×2400
+     * 同时越过了「单边 1920」和「4.1 的像素预算」两条线，而超限在握手阶段不会报错 —— 只有
+     * 解码器配置失败、永远等不到首帧。所以两条限制一起卡，谁先到谁生效。
+     */
+    public static final int MAX_SIDE = 1920;
+    /** 见 {@link #MAX_SIDE}。 */
+    public static final int MAX_PIXELS = 1920 * 1080;
+
+    /**
+     * 把实测画布收拢到「这台车机一定能解」的上限，并尽量保留清晰度。
+     *
+     * <p>只缩不放、保持宽高比：先在单边上限上算一个比例，再在像素预算上算一个，取小的那个；
+     * 结果向下取偶数（H.264 的 4:2:0 要求宽高都是偶数）。屏幕本来就在上限内时原样返回，
+     * 不会为了「统一」白白降低一档清晰度。
+     *
+     * @param w 实测画布宽（{@link #reported} 的产物）
+     * @param h 实测画布高
+     * @return {@code int[]{w, h}} 上报序；入参无效时 {@code {0, 0}}
+     */
+    public static int[] fitForEncoder(int w, int h) {
+        if (w <= 0 || h <= 0) return new int[]{0, 0};
+        double scale = Math.min(
+                (double) MAX_SIDE / (double) Math.max(w, h),
+                Math.sqrt((double) MAX_PIXELS / ((double) w * (double) h)));
+        if (scale >= 1.0) {
+            return new int[]{Math.max(2, w & ~1), Math.max(2, h & ~1)};
+        }
+        int outW = Math.max(2, ((int) Math.floor(w * scale)) & ~1);
+        int outH = Math.max(2, ((int) Math.floor(h * scale)) & ~1);
+        return new int[]{outW, outH};
+    }
 }
