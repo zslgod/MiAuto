@@ -8,6 +8,7 @@
     <string name="da_open">Открыть проекцию</string>
     <string name="da_ready">Ожидание телефона</string>
     <string name="da_connecting">Подключение к телефону…</string>
+    <string name="icoca_reconnecting">Соединение потеряно — ждём повторного подключения телефона…</string>
     <string name="da_connected">Телефон подключён</string>
     <string name="da_pin">Код сопряжения: %1$s</string>
     <string name="da_pin_label">КОД СОПРЯЖЕНИЯ</string>

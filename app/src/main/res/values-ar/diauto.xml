@@ -8,6 +8,7 @@
     <string name="da_open">فتح العرض</string>
     <string name="da_ready">بانتظار هاتفك</string>
     <string name="da_connecting">جارٍ الاتصال بهاتفك…</string>
+    <string name="icoca_reconnecting">انقطع الاتصال — بانتظار إعادة اتصال هاتفك…</string>
     <string name="da_connected">تم اتصال الهاتف</string>
     <string name="da_pin">رمز الاقتران: %1$s</string>
     <string name="da_pin_label">رمز الاقتران</string>

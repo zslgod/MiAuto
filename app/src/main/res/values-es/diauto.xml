@@ -8,6 +8,7 @@
     <string name="da_open">Abrir proyección</string>
     <string name="da_ready">Esperando tu teléfono</string>
     <string name="da_connecting">Conectando con tu teléfono…</string>
+    <string name="icoca_reconnecting">Conexión perdida: esperando a que el teléfono se vuelva a conectar…</string>
     <string name="da_connected">Teléfono conectado</string>
     <string name="da_pin">Código de emparejamiento: %1$s</string>
     <string name="da_pin_label">CÓDIGO DE EMPAREJAMIENTO</string>
