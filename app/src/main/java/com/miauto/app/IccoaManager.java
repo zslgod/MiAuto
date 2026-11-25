@@ -9,6 +9,7 @@ import android.util.Log;
 import android.view.Surface;
 
 import com.share.connect.WifiOwnerConfig;
+import com.ucar.vehiclesdk.IAppSurfaceStateListener;
 import com.ucar.vehiclesdk.ICarConnectListener;
 import com.ucar.vehiclesdk.ICarInitCallback;
 import com.ucar.vehiclesdk.IPhoneDataListener;
@@ -102,6 +103,21 @@ public class IccoaManager {
     /** {@link #tryStartCast()} 的重试预算（×500ms = 最长 10 秒）。 */
     private static final int CAST_RETRY_MAX = 20;
     private int castRetry = 0;
+
+    /**
+     * SDK 在<b>第一帧解码并送到 Surface 之后</b>回调 {@link IAppSurfaceStateListener#onSurfaceReady()}。
+     * 它把「链路通了」和「画面真的出来了」区分开：日志里没有这一行，就说明问题在收流/解码，
+     * 而不是我们的 Surface 或 UI。
+     */
+    private final IAppSurfaceStateListener surfaceStateListener = new IAppSurfaceStateListener() {
+        @Override
+        public void onSurfaceReady() {
+            firstFrameSeen = true;
+            log("SDK onSurfaceReady —— 首帧已解码并送入 Surface");
+        }
+    };
+
+    private volatile boolean firstFrameSeen = false;
 
     // ---- 状态机 ----
     private volatile boolean sdkInitialized = false;
@@ -212,6 +228,14 @@ public class IccoaManager {
     /** 灌进 {@code UCarConfig} 的那一份画布；判断「这次连接要不要重谈」就靠它。 */
     private volatile int initCanvasW = 0, initCanvasH = 0;
 
+    /**
+     * 临时实验开关：协商给手机的画布整体缩放。<b>1.0 = 按实测分辨率</b>。
+     *
+     * <p>用来验证「黑屏是不是解码器吃不下 1080×2400」：0.5 时上报 540×1140，手机按这个尺寸编码，
+     * 解码压力降到四分之一。若缩小后能出画，就说明原分辨率超出了这台设备解码器的能力/配置。
+     */
+    private static final float CANVAS_SCALE = 0.5f;
+
     /** 本会话内连续「无线建链类失败」次数，{@link ReconnectBackoff} 据此放大重播间隔。 */
     private int wirelessFailStreak = 0;
 
@@ -233,6 +257,10 @@ public class IccoaManager {
         if (w <= 0 || h <= 0) {
             log("! 忽略无效的屏幕尺寸 " + w + "x" + h + " —— 保留上一次有效值，等重试");
             return;
+        }
+        if (CANVAS_SCALE != 1.0f) {
+            w = Math.max(2, Math.round(w * CANVAS_SCALE)) & ~1;   // 编码器要求偶数
+            h = Math.max(2, Math.round(h * CANVAS_SCALE)) & ~1;
         }
         if (w != screenW || h != screenH) {
             log("协商画布 " + w + "x" + h
@@ -535,13 +563,21 @@ public class IccoaManager {
             return;
         }
         castRetry = 0;
-        boolean ok = adapter.startCast(s, videoW, videoH);
+        firstFrameSeen = false;
+        boolean ok = adapter.startCast(s, videoW, videoH, surfaceStateListener);
         castStarted = ok;
         castSurface = ok ? s : null;
         log((ok ? "✓ " : "✗ ") + "startCast(" + videoW + "x" + videoH + ") = " + ok
                 + " surface=" + castSurfaceW + "x" + castSurfaceH + " valid=" + s.isValid());
         if (ok) {
             main.post(listener::onCastStarted);
+            // startCast() only enqueues the work and returns true; it says nothing about whether a
+            // decoder ever produced a frame. Make that visible without SDK logcat access.
+            main.postDelayed(() -> {
+                if (!firstFrameSeen) {
+                    log("⚠ startCast 后 3 秒仍无首帧（onSurfaceReady 未回调）：收流或解码没有出画");
+                }
+            }, 3000);
         }
     }
 

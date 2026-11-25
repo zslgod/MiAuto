@@ -20,49 +20,17 @@ object DiagnosticReport {
         val history = DiagnosticJournal.snapshot()
         val source = if (settings.logSource == Settings.LogSource.APPLOG_FILE)
             AppLog.currentLogFile ?: AppLog.lastLogFile else null
-        if (history.isNotEmpty()) {
-            history.forEach(::accept)
-        } else if (source?.isFile == true) {
-            source.useLines { it.forEach(::accept) }
-        } else {
-            // Also capture the ICCOA SDK's own logs, not just ours. The video path's failures
-            // ("codec configured failed", "init: setOutputSurface failed", "onNativeWfdSinkStopped")
-            // are logged by the SDK under its own tag, so the OPENHU-only filter hid exactly the
-            // lines that explain a black picture. Preferred form is --pid (everything this process
-            // logged); the tag list is a fallback for ROMs whose logcat rejects --pid.
-            val pid = android.os.Process.myPid().toString()
-            val commands = listOf(
-                listOf("logcat", "-d", "-v", "threadtime", "--pid=$pid"),
-                listOf(
-                    "logcat", "-d", "-v", "threadtime",
-                    "OPENHU:V", "UCarAdapter:V", "UCarConfig:V", "UCarSurfaceView:V",
-                    "UCarProtocol:V", "SinkNative:V", "CastManager:V", "VideoPlayerV2:V",
-                    "VideoSinkInputThread:V", "VideoQueueManager:V", "UCarAudioManager:V",
-                    "AndroidRuntime:E", "*:S",
-                ),
-            )
-            for (args in commands) {
-                val chunk = ArrayList<String>()
-                val ok = try {
-                    val process = ProcessBuilder(args).redirectErrorStream(true).start()
-                    try {
-                        process.inputStream.bufferedReader().useLines { seq ->
-                            seq.forEach { chunk.add(it) }
-                        }
-                        process.waitFor() == 0 && chunk.isNotEmpty()
-                    } finally {
-                        process.destroy()
-                    }
-                } catch (t: Throwable) {
-                    false
-                }
-                if (ok) {
-                    chunk.forEach(::accept)
-                    break
-                }
-            }
-            check(lines.isNotEmpty()) { "Could not read the app logs" }
+        // Prefer logcat: it is the only place the ICCOA SDK's own lines appear ("codec configured
+        // failed", "init: setOutputSurface failed", "onWfdSinkReady", "start cast failed"). The
+        // journal below only ever holds *our* OPENHU lines, which is why a black picture looked
+        // like "everything worked": every app-level step succeeded.
+        val logcat = readLogcat()
+        when {
+            logcat != null -> logcat.forEach(::accept)
+            history.isNotEmpty() -> history.forEach(::accept)
+            source?.isFile == true -> source.useLines { it.forEach(::accept) }
         }
+        check(lines.isNotEmpty()) { "Could not read the app logs" }
         return buildString {
             appendLine("DiAuto ${context.packageManager.getPackageInfo(context.packageName, 0).versionName} · diagnostic report")
             appendLine("Android=${Build.VERSION.RELEASE}; API=${Build.VERSION.SDK_INT}")
@@ -76,5 +44,43 @@ object DiagnosticReport {
             if (lines.isEmpty()) appendLine("No recent app logs available. Reproduce the issue and save a new report.")
             lines.forEach { appendLine(it) }
         }
+    }
+
+    /**
+     * Everything this process logged, including the ICCOA SDK's and libovmsink's own tags.
+     * `--pid` is preferred; the tag list covers ROMs whose logcat rejects `--pid`. Returns null
+     * when logcat is unavailable (a non-privileged app often cannot read it) so the caller can
+     * fall back to the in-app journal.
+     */
+    private fun readLogcat(): List<String>? {
+        val pid = android.os.Process.myPid().toString()
+        val commands = listOf(
+            listOf("logcat", "-d", "-v", "threadtime", "--pid=$pid"),
+            listOf(
+                "logcat", "-d", "-v", "threadtime",
+                "OPENHU:V", "UCarAdapter:V", "UCarConfig:V", "UCarSurfaceView:V",
+                "UCarProtocol:V", "SinkNative:V", "CastManager:V", "VideoPlayerV2:V",
+                "VideoSinkInputThread:V", "VideoQueueManager:V", "UCarAudioManager:V",
+                "AndroidRuntime:E", "*:S",
+            ),
+        )
+        for (args in commands) {
+            val chunk = ArrayList<String>()
+            val ok = try {
+                val process = ProcessBuilder(args).redirectErrorStream(true).start()
+                try {
+                    process.inputStream.bufferedReader().useLines { seq ->
+                        seq.forEach { chunk.add(it) }
+                    }
+                    process.waitFor() == 0 && chunk.isNotEmpty()
+                } finally {
+                    process.destroy()
+                }
+            } catch (t: Throwable) {
+                false
+            }
+            if (ok) return chunk
+        }
+        return null
     }
 }
