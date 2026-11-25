@@ -46,17 +46,13 @@ class IcocaProjectionActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Match the orientation the canvas was negotiated for. MainActivity already sets the same
-        // requestedOrientation, but this activity is launched separately (and can be brought up
-        // from the background), so without it the Surface could come up in a different orientation
-        // than the phone is encoding for — stretched picture and UIBC touches landing off-target.
+        bridge = App.provide(this).icocaBridge
         requestedOrientation = Settings(this).screenOrientation.androidOrientation
         // A projection session can run for a long time; never let the panel sleep mid-drive.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_icoca_projection)
         enterImmersiveFullscreen()
 
-        bridge = App.provide(this).icocaBridge
         val view = findViewById<SurfaceView>(R.id.icoca_surface)
         surfaceView = view
         // The surface is only an output; every touch on it belongs to the phone. Keeping the view
@@ -67,15 +63,18 @@ class IcocaProjectionActivity : AppCompatActivity() {
         view.holder.addCallback(
             object : SurfaceHolder.Callback {
                 override fun surfaceCreated(holder: SurfaceHolder) {
+                    // Deliberately not binding here: the surface has not been laid out yet, and
+                    // starting cast on it means the decoder is configured for a 0/default size.
+                    // surfaceChanged follows with the real size; bind there.
                     AppLog.i("ICCOA projection: surfaceCreated")
-                    bridge.setSurface(holder.surface)
                 }
 
                 override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                     AppLog.i("ICCOA projection: surfaceChanged ${width}x$height")
-                    // Re-bind on every change: a size change tears the surface down underneath the
-                    // SDK, and the stale reference would otherwise keep receiving frames.
-                    bridge.setSurface(holder.surface)
+                    if (width <= 0 || height <= 0) return
+                    // Bind with the real size; a genuine resize re-configures the decoder instead
+                    // of leaving it writing into a resized (and now black) buffer queue.
+                    bridge.setSurface(holder.surface, width, height)
                 }
 
                 override fun surfaceDestroyed(holder: SurfaceHolder) {

@@ -96,6 +96,9 @@ public class IccoaManager {
     /** 已经交给 SDK 的那块 Surface。与 {@link #surface} 不同即意味着「换了一块，必须重绑」。 */
     private Surface castSurface = null;
 
+    /** 已绑定 Surface 的实际像素尺寸；用于识别「同一个 Surface 但被重新布局」的真变化。 */
+    private int castSurfaceW = 0, castSurfaceH = 0;
+
     /** {@link #tryStartCast()} 的重试预算（×500ms = 最长 10 秒）。 */
     private static final int CAST_RETRY_MAX = 20;
     private int castRetry = 0;
@@ -258,9 +261,26 @@ public class IccoaManager {
      * abandoned / -19}，画面永久黑掉而声音还在。
      */
     public void setSurface(Surface s) {
+        setSurface(s, 0, 0);
+    }
+
+    /**
+     * Surface 就绪 / 变化，<b>带实际像素尺寸</b>。
+     *
+     * <p>为什么尺寸必须参与判定：SDK 的 {@code startCast(surface, w, h)} 会把解码输出绑到这块
+     * Surface 上。若在 Surface 还没完成布局（尺寸为 0/默认）时就起投，随后布局把它改成真实
+     * 尺寸，SDK 的解码器仍按旧尺寸工作 —— 画面不刷新（黑屏），手机等不到视频帧，十几秒后
+     * 主动断开。之前「同一个 Surface 对象就直接 return」的分支把这种真实的尺寸变化也吞掉了。
+     *
+     * <p>重复的相同尺寸回调仍然跳过；只有尺寸真的变了才 pause + 重绑，让解码器重新配置。
+     */
+    public void setSurface(Surface s, int w, int h) {
+        boolean sized = w > 0 && h > 0;
         if (s != null && s == castSurface && castStarted) {
-            // 同一个 Surface 的重复回调（surfaceChanged 常见）：无需重绑。
-            return;
+            if (!sized || (w == castSurfaceW && h == castSurfaceH)) {
+                return;     // 同一个 Surface、同一尺寸：无需重绑。
+            }
+            log("Surface 尺寸 " + castSurfaceW + "x" + castSurfaceH + " → " + w + "x" + h + "，重绑以重配解码器");
         }
         if (castStarted) {
             log("Surface 变更 → 先 pauseCast()，再绑定新 Surface");
@@ -269,6 +289,8 @@ public class IccoaManager {
             castSurface = null;
         }
         this.surface = s;
+        this.castSurfaceW = w;
+        this.castSurfaceH = h;
         castRetry = 0;          // 新 Surface 到位，重试预算重置
         tryStartCast();
     }
@@ -284,6 +306,8 @@ public class IccoaManager {
         if (castStarted) pauseCastQuietly();
         castStarted = false;
         castSurface = null;
+        castSurfaceW = 0;
+        castSurfaceH = 0;
         surface = null;
     }
 
@@ -514,7 +538,8 @@ public class IccoaManager {
         boolean ok = adapter.startCast(s, videoW, videoH);
         castStarted = ok;
         castSurface = ok ? s : null;
-        log((ok ? "✓ " : "✗ ") + "startCast(" + videoW + "x" + videoH + ") = " + ok);
+        log((ok ? "✓ " : "✗ ") + "startCast(" + videoW + "x" + videoH + ") = " + ok
+                + " surface=" + castSurfaceW + "x" + castSurfaceH + " valid=" + s.isValid());
         if (ok) {
             main.post(listener::onCastStarted);
         }

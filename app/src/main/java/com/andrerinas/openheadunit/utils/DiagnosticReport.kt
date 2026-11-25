@@ -25,12 +25,43 @@ object DiagnosticReport {
         } else if (source?.isFile == true) {
             source.useLines { it.forEach(::accept) }
         } else {
-            val process = ProcessBuilder("logcat", "-d", "-v", "threadtime", "OPENHU:V", "*:S")
-                .redirectErrorStream(true).start()
-            try {
-                process.inputStream.bufferedReader().useLines { it.forEach(::accept) }
-                check(process.waitFor() == 0) { "Could not read the app logs" }
-            } finally { process.destroy() }
+            // Also capture the ICCOA SDK's own logs, not just ours. The video path's failures
+            // ("codec configured failed", "init: setOutputSurface failed", "onNativeWfdSinkStopped")
+            // are logged by the SDK under its own tag, so the OPENHU-only filter hid exactly the
+            // lines that explain a black picture. Preferred form is --pid (everything this process
+            // logged); the tag list is a fallback for ROMs whose logcat rejects --pid.
+            val pid = android.os.Process.myPid().toString()
+            val commands = listOf(
+                listOf("logcat", "-d", "-v", "threadtime", "--pid=$pid"),
+                listOf(
+                    "logcat", "-d", "-v", "threadtime",
+                    "OPENHU:V", "UCarAdapter:V", "UCarConfig:V", "UCarSurfaceView:V",
+                    "UCarProtocol:V", "SinkNative:V", "CastManager:V", "VideoPlayerV2:V",
+                    "VideoSinkInputThread:V", "VideoQueueManager:V", "UCarAudioManager:V",
+                    "AndroidRuntime:E", "*:S",
+                ),
+            )
+            for (args in commands) {
+                val chunk = ArrayList<String>()
+                val ok = try {
+                    val process = ProcessBuilder(args).redirectErrorStream(true).start()
+                    try {
+                        process.inputStream.bufferedReader().useLines { seq ->
+                            seq.forEach { chunk.add(it) }
+                        }
+                        process.waitFor() == 0 && chunk.isNotEmpty()
+                    } finally {
+                        process.destroy()
+                    }
+                } catch (t: Throwable) {
+                    false
+                }
+                if (ok) {
+                    chunk.forEach(::accept)
+                    break
+                }
+            }
+            check(lines.isNotEmpty()) { "Could not read the app logs" }
         }
         return buildString {
             appendLine("DiAuto ${context.packageManager.getPackageInfo(context.packageName, 0).versionName} · diagnostic report")

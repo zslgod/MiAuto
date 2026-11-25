@@ -137,6 +137,10 @@ class IcocaBridge(context: Context) : IccoaManager.Listener {
      */
     fun setSurface(surface: Surface) = manager.setSurface(surface)
 
+    /** Same, with the surface's laid-out pixel size, so a real resize re-configures the decoder. */
+    fun setSurface(surface: Surface, width: Int, height: Int) =
+        manager.setSurface(surface, width, height)
+
     /** Surface gone: let the SDK stop writing before the BufferQueue is recycled. */
     fun onSurfaceDestroyed() = manager.onSurfaceDestroyed()
 
