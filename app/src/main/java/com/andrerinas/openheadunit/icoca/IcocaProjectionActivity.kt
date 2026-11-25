@@ -41,11 +41,6 @@ import kotlinx.coroutines.launch
  */
 class IcocaProjectionActivity : AppCompatActivity() {
 
-    private companion object {
-        /** How long the projection stays up after the link drops, waiting for an automatic reconnect. */
-        const val RECONNECT_GRACE_MS = 10_000L
-    }
-
     private lateinit var bridge: IcocaBridge
     private var surfaceView: SurfaceView? = null
 
@@ -132,7 +127,9 @@ class IcocaProjectionActivity : AppCompatActivity() {
                         // The phone hung up on its own. Give it a few seconds to come back before
                         // handing the screen back to standby: the SDK re-advertises immediately and
                         // CarWith usually reconnects without user action.
-                        if (standbyJob == null) {
+                        if (standbyJob?.isActive != true) {
+                            // A cancelled job can linger here after a STARTED restart; only an
+                            // active timer means we are already counting down.
                             hint.setText(R.string.icoca_reconnecting)
                             hint.visibility = View.VISIBLE
                             standbyJob = scope.launch {
@@ -265,6 +262,9 @@ class IcocaProjectionActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** How long the projection stays up after the link drops, waiting for an automatic reconnect. */
+        private const val RECONNECT_GRACE_MS = 10_000L
+
         /** Read by MainActivity to avoid stacking a second projection instance. */
         @Volatile
         var isForeground: Boolean = false
