@@ -54,6 +54,47 @@ jobs:
       - name: Check core translations
         run: python3 scripts/check_localization.py
 
+      # Optional: pull the proprietary ICCOA SDK dex from a *private* repository's release so that
+      # pushes to this repository can produce a functional APK. Fork PRs get no secrets, so this
+      # step no-ops there and the job stays the documented compile-only check.
+      #
+      # Requires: secret SDK_REPO (e.g. owner/MiAuto-sdk) and SDK_REPO_TOKEN (a token that can read
+      # it), with an asset named `icar-sdk.dex` on that repository's release.
+      - name: Restore ICCOA SDK dex (optional)
+        env:
+          GH_TOKEN: ${{ secrets.SDK_REPO_TOKEN }}
+          SDK_REPO: ${{ secrets.SDK_REPO }}
+        run: |
+          if [ -z "$SDK_REPO" ] || [ -z "$GH_TOKEN" ]; then
+            echo "::notice title=Compile check only::SDK_REPO/SDK_REPO_TOKEN not set — this APK will have no CarWith support."
+            exit 0
+          fi
+          mkdir -p app/libs
+          gh release download --repo "$SDK_REPO" --pattern icar-sdk.dex --dir app/libs --clobber
+          echo "SDK dex restored: $(stat -c%s app/libs/icar-sdk.dex) bytes"
+
+      # Optional: write the release signing key from secrets so the release APK is signed.
+      # Generate the base64 with: base64 -w0 headunit-release-key.jks
+      - name: Write release signing material (optional)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::notice title=Unsigned release::RELEASE_KEYSTORE_BASE64 not set — the release APK will be unsigned."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > headunit-release-key.jks
+          {
+            echo "storeFile=headunit-release-key.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=${KEY_ALIAS:-headunit-revived}"
+            echo "keyPassword=${KEY_PASSWORD:-$STORE_PASSWORD}"
+          } > key.properties
+          echo "Release signing material written."
+
       # The CarWith / CarLink protocol SDK is a proprietary prebuilt dex and is not in git
       # (see app/libs/README.md). It cannot be carried in a repository secret either:
       # Actions secrets are capped at 48 KB and the dex is ~7 MB.
@@ -86,11 +127,11 @@ jobs:
           path: app/build/outputs/apk/github/debug/*.apk
           if-no-files-found: warn
 
-      - name: Upload release APK (unsigned, R8 check)
+      - name: Upload release APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: miauto-github-release-apk-unsigned
+          name: miauto-github-release-apk
           path: app/build/outputs/apk/github/release/*.apk
           if-no-files-found: warn
 
