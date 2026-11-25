@@ -2,6 +2,7 @@ package com.andrerinas.openheadunit.icoca
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.SurfaceHolder
@@ -61,7 +62,7 @@ class IcocaProjectionActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         bridge = App.provide(this).icocaBridge
-        requestedOrientation = Settings(this).screenOrientation.androidOrientation
+        requestedOrientation = projectionOrientation()
         // A projection session can run for a long time; never let the panel sleep mid-drive.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_icoca_projection)
@@ -172,6 +173,23 @@ class IcocaProjectionActivity : AppCompatActivity() {
      * asking the SDK: use it and letterbox the remainder. When the shapes already match this is a
      * no-op and the picture stays full-screen.
      */
+    /**
+     * 选定的投射比例决定窗口方向：16:9 / 4:3 / 3:2 用横屏，9:16 用竖屏，「自动」跟随
+     * 设置里的屏幕方向。
+     *
+     * <p>不这样做的话，在竖屏窗口里选 16:9 只能在竖屏中间画一条横带，看起来仍然像竖屏 ——
+     * 反馈里「比例都识别为竖屏」就是这个原因。
+     */
+    private fun projectionOrientation(): Int {
+        val settings = Settings(this)
+        val aspect = settings.projectionAspect
+        return when {
+            aspect == Settings.ProjectionAspect.AUTO -> settings.screenOrientation.androidOrientation
+            aspect.ratioNum >= aspect.ratioDen -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
     private fun applySurfaceAspect() {
         val view = surfaceView ?: return
         val parent = view.parent as? View ?: return

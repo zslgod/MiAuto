@@ -151,8 +151,9 @@ class ScreenSizePolicyTest {
         assertArrayEquals(intArrayOf(1920, 1080), ScreenSizePolicy.canvasFor(2400, 1080, 16, 9))
         // 4:3 on the same panel: height-limited again -> 1440x1080.
         assertArrayEquals(intArrayOf(1440, 1080), ScreenSizePolicy.canvasFor(2400, 1080, 4, 3))
-        // Portrait panel, 16:9: width-limited, the picture is a band in the middle.
-        assertArrayEquals(intArrayOf(1080, 608), ScreenSizePolicy.canvasFor(1080, 2400, 16, 9))
+        // The aspect wins over the panel's ordering: 16:9 stays landscape even when the panel is
+        // reported portrait-first, otherwise the picture is a band in the middle of a portrait view.
+        assertArrayEquals(intArrayOf(1920, 1080), ScreenSizePolicy.canvasFor(1080, 2400, 16, 9))
         // 9:16 back on a portrait panel: width-limited -> 1080x1920, still inside the budget.
         assertArrayEquals(intArrayOf(1080, 1920), ScreenSizePolicy.canvasFor(1080, 2400, 9, 16))
     }
@@ -164,7 +165,12 @@ class ScreenSizePolicyTest {
         for ((panelW, panelH) in panels) {
             for ((num, den) in ratios) {
                 val (w, h) = ScreenSizePolicy.canvasFor(panelW, panelH, num, den)
-                assertTrue("fits the panel ${w}x$h on ${panelW}x$panelH", w <= panelW && h <= panelH)
+                val panelLong = maxOf(panelW, panelH)
+                val panelShort = minOf(panelW, panelH)
+                assertTrue(
+                    "fits the panel ${w}x$h on ${panelW}x$panelH",
+                    maxOf(w, h) <= panelLong && minOf(w, h) <= panelShort,
+                )
                 assertTrue("long side ${w}x$h", maxOf(w, h) <= ScreenSizePolicy.MAX_SIDE)
                 assertTrue("pixels ${w}x$h", w.toLong() * h <= ScreenSizePolicy.MAX_PIXELS)
                 val expected = num.toDouble() / den

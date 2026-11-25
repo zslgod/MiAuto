@@ -121,10 +121,10 @@ public final class ScreenSizePolicy {
      * 直接用屏幕的比例，行为与 {@link #fitForEncoder} 一致。指定比例时，先在这块屏里取<b>最大的
      * 同比例矩形</b>（整幅画面都能显示、只留黑边），再交给 {@link #fitForEncoder} 收进解码预算。
      *
-     * <p>注意两个方向都要算：竖屏屏上选 16:9，得到的是「宽受限」的矩形；横屏屏上选 9:16，
-     * 得到的是「高受限」的矩形。
+     * <p><b>比例优先于屏幕方向</b>：16:9 就是横向 16:9，不管传进来的面板是竖着还是横着排的。
+     * 否则在竖屏窗口里选 16:9 会得到一个「竖屏中间一条横带」的结果 —— 看起来仍然是竖屏。
      *
-     * @param panelW 屏幕宽
+     * @param panelW 屏幕宽（顺序不重要，内部按长短边归一）
      * @param panelH 屏幕高
      * @param ratioNum 比例分子（宽），0 表示跟随屏幕
      * @param ratioDen 比例分母（高），0 表示跟随屏幕
@@ -133,11 +133,16 @@ public final class ScreenSizePolicy {
     public static int[] canvasFor(int panelW, int panelH, int ratioNum, int ratioDen) {
         if (panelW <= 0 || panelH <= 0) return new int[]{0, 0};
         if (ratioNum <= 0 || ratioDen <= 0) return fitForEncoder(panelW, panelH);
+        int longSide = Math.max(panelW, panelH);
+        int shortSide = Math.min(panelW, panelH);
+        // 横比例装进「长边 × 短边」，竖比例装进「短边 × 长边」。
+        int boxW = ratioNum >= ratioDen ? longSide : shortSide;
+        int boxH = ratioNum >= ratioDen ? shortSide : longSide;
         double target = (double) ratioNum / (double) ratioDen;
-        int w = panelW;
+        int w = boxW;
         int h = (int) Math.round(w / target);
-        if (h > panelH) {
-            h = panelH;
+        if (h > boxH) {
+            h = boxH;
             w = (int) Math.round(h * target);
         }
         w = Math.max(2, w & ~1);
